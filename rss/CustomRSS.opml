@@ -2,6 +2,25 @@
 <opml version="2.0">
 <head><title>CustomRSS</title></head>
 <body>
-<outline title="HackerOne Hacker Activity" text="HackerOne Hacker Activity" htmlUrl="https://hackerone.com/hacktivity" xmlUrl="https://rsshub.app/hackerone/hacktivity" type="rss" />
+<outline type="rss" htmlUrl="https://www.exploit-db.com" text="Exploit-DB.com RSS Feed" title="Exploit-DB.com RSS Feed" xmlUrl="https://www.exploit-db.com/rss.xml" />
+<outline text="绿盟科技技术博客" htmlUrl="https://blog.nsfocus.net" title="绿盟科技技术博客" type="rss" xmlUrl="http://blog.nsfocus.net/feed/" />
+<outline text="奇安信CERT" title="奇安信CERT" type="rss" xmlUrl="https://wechat2rss.xlab.app/feed/981c000a01bbdc1f128d260cc91c15d3a6afb530.xml" htmlUrl="https://wechat2rss.xlab.app/feed/981c000a01bbdc1f128d260cc91c15d3a6afb530.xml"/>
+<outline text="华为安全通告" title="华为安全通告" type="rss" xmlUrl="https://www.huawei.com/cn/rss-feeds/psirt/rss" htmlUrl="https://www.huawei.com/cn/rss-feeds/psirt"/>
+<outline text="腾讯科恩实验室官方博客" title="腾讯科恩实验室官方博客" type="rss" xmlUrl="https://keenlab.tencent.com/zh/atom.xml" htmlUrl="http://keenlab.tencent.com"/>
+<outline text="清华大学·网络与信息安全实验室 (NISL)" title="清华大学·网络与信息安全实验室 (NISL)" type="rss" xmlUrl="https://netsec.ccert.edu.cn/feed.xml" htmlUrl="https://netsec.ccert.edu.cn/chs"/>
+<outline text="腾讯安全响应中心" title="腾讯安全响应中心" type="rss" xmlUrl="https://security.tencent.com/index.php/feed/blog/0" htmlUrl="http://security.tencent.com"/>
+<outline text="网络安全应急技术国家工程实验室" title="网络安全应急技术国家工程实验室" type="rss" xmlUrl="https://wechat2rss.xlab.app/feed/f9a553dbf6aa425ea47b33595b99e612bbcd93ad.xml" htmlUrl="https://wechat2rss.xlab.app/feed/f9a553dbf6aa425ea47b33595b99e612bbcd93ad.xml"/>
+<outline text="CNVD漏洞平台" title="CNVD漏洞平台" type="rss" xmlUrl="https://wechat2rss.xlab.app/feed/edf17c7a01a7152b7a1ca14133258dc4abc1ca61.xml" htmlUrl="https://wechat2rss.xlab.app/feed/edf17c7a01a7152b7a1ca14133258dc4abc1ca61.xml"/>
+<outline text="字节跳动安全中心" title="字节跳动安全中心" type="rss" xmlUrl="https://wechat2rss.xlab.app/feed/f4087ff02b808a1a995e2ba930219ada5b82425d.xml" htmlUrl="https://wechat2rss.xlab.app/feed/f4087ff02b808a1a995e2ba930219ada5b82425d.xml"/>
+<outline text="阿里安全响应中心" title="阿里安全响应中心" type="rss" xmlUrl="https://wechat2rss.xlab.app/feed/544a8a6edc551b8a2975fbb76b7de1637570d0e7.xml" htmlUrl="https://wechat2rss.xlab.app/feed/544a8a6edc551b8a2975fbb76b7de1637570d0e7.xml"/>
+<outline text="斗象智能安全" title="斗象智能安全" type="rss" xmlUrl="https://wechat2rss.xlab.app/feed/5b72c7dcf37ab8e8c6e5745ecf2701b4ba3cd355.xml" htmlUrl="https://wechat2rss.xlab.app/feed/5b72c7dcf37ab8e8c6e5745ecf2701b4ba3cd355.xml"/>
+<outline text="滴滴安全应急响应中心" title="滴滴安全应急响应中心" type="rss" xmlUrl="https://wechat2rss.xlab.app/feed/97cd46da8232bd740c02838e1c579182f9636e3e.xml" htmlUrl="https://wechat2rss.xlab.app/feed/97cd46da8232bd740c02838e1c579182f9636e3e.xml"/>
+<outline text="天融信阿尔法实验室" title="天融信阿尔法实验室" type="rss" xmlUrl="https://wechat2rss.xlab.app/feed/a9cfdddef757b0ebac0428f629869b69028c43fa.xml" htmlUrl="https://wechat2rss.xlab.app/feed/a9cfdddef757b0ebac0428f629869b69028c43fa.xml"/>
+<outline text="360 CERT" title="360 CERT" type="rss" xmlUrl="https://wechat2rss.xlab.app/feed/2dbce2e5f7b49dc8415db7a0ab325929e0f5d8c3.xml" htmlUrl="https://wechat2rss.xlab.app/feed/2dbce2e5f7b49dc8415db7a0ab325929e0f5d8c3.xml"/>
+<outline text="微步在线研究响应中心" title="微步在线研究响应中心" type="rss" xmlUrl="https://wechat2rss.xlab.app/feed/ac64c385ebcdb17fee8df733eb620a22b979928c.xml" htmlUrl="https://wechat2rss.xlab.app/feed/ac64c385ebcdb17fee8df733eb620a22b979928c.xml"/>
+<outline text="奇安信威胁情报中心" title="奇安信威胁情报中心" type="rss" xmlUrl="https://wechat2rss.xlab.app/feed/b93962f981247c0091dad08df5b7a6864ab888e9.xml" htmlUrl="https://wechat2rss.xlab.app/feed/b93962f981247c0091dad08df5b7a6864ab888e9.xml"/>
+<outline text="绿盟科技CERT" title="绿盟科技CERT" type="rss" xmlUrl="https://wechat2rss.xlab.app/feed/aa2ff3b0167a3f449f3b116717b5350ab64df8c3.xml" htmlUrl="https://wechat2rss.xlab.app/feed/aa2ff3b0167a3f449f3b116717b5350ab64df8c3.xml"/>
+<outline text="CNNVD安全动态" title="CNNVD安全动态" type="rss" xmlUrl="https://wechat2rss.xlab.app/feed/899e0eaf0e3ea7abac0211b3db9bb39c616e3255.xml" htmlUrl="https://wechat2rss.xlab.app/feed/899e0eaf0e3ea7abac0211b3db9bb39c616e3255.xml"/>
+</body>
 </body>
 </opml>

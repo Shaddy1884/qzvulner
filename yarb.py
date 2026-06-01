@@ -3,7 +3,6 @@
 import os
 import json
 import time
-import asyncio
 import schedule
 import pyfiglet
 import argparse
@@ -13,21 +12,34 @@ import feedparser
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from bot import *
 from utils import *
 
 import requests
 requests.packages.urllib3.disable_warnings()
 
-today = datetime.datetime.now().strftime("%Y-%m-%d")
+# 北京时间 UTC+8 — 中文安全资讯聚合器统一使用北京时间判断"今天"
+_BEIJING_OFFSET = datetime.timedelta(hours=8)
 
 
-def update_today(data: list=[]):
+def _beijing_now():
+    """返回当前北京时间（不依赖系统时区）。"""
+    return datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None) + _BEIJING_OFFSET
+
+
+def _utc_struct_to_beijing_date(d):
+    """将 feedparser 的 published_parsed（UTC）转为北京时间日期。"""
+    utc_dt = datetime.datetime(*d[:6])
+    beijing_dt = utc_dt + _BEIJING_OFFSET
+    return beijing_dt.date()
+
+def update_today(data: list=[], target_date: str=None):
     """更新today"""
+    if target_date is None:
+        target_date = (_beijing_now() - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
     root_path = Path(__file__).absolute().parent
     data_path = root_path.joinpath('temp_data.json')
     today_path = root_path.joinpath('today.md')
-    archive_path = root_path.joinpath(f'archive/{today.split("-")[0]}/{today}.md')
+    archive_path = root_path.joinpath(f'archive/{target_date.split("-")[0]}/{target_date}.md')
 
     if not data and data_path.exists():
         with open(data_path, 'r') as f1:
@@ -35,12 +47,17 @@ def update_today(data: list=[]):
 
     archive_path.parent.mkdir(parents=True, exist_ok=True)
     with open(today_path, 'w+') as f1, open(archive_path, 'w+') as f2:
-        content = f'# 每日安全资讯（{today}）\n\n'
+        content = f'# 每日安全资讯（{target_date}）\n\n'
+        article_count = 0
         for item in data:
             (feed, value), = item.items()
-            content += f'- {feed}\n'
-            for title, url in value.items():
-                content += f'  - [{title}]({url})\n'
+            if value:
+                content += f'- {feed}\n'
+                for title, url in value.items():
+                    content += f'  - [{title}]({url})\n'
+                    article_count += 1
+        if article_count == 0:
+            content += '> 今日暂无收录安全资讯，源站未更新。\n'
         f1.write(content)
         f2.write(content)
 
@@ -71,8 +88,11 @@ def update_rss(rss: dict, proxy_url=''):
     return result
 
 
-def parseThread(conf: dict, url: str, proxy_url=''):
+def parseThread(conf: dict, url: str, proxy_url='', target_date=None):
     """获取文章线程"""
+    if target_date is None:
+        target_date = (_beijing_now() - datetime.timedelta(days=1)).date()
+
     def filter(title: str):
         """过滤文章"""
         for i in conf['exclude']:
@@ -95,9 +115,10 @@ def parseThread(conf: dict, url: str, proxy_url=''):
         title = r.feed.title
         for entry in r.entries:
             d = entry.get('published_parsed') or entry.get('updated_parsed')
-            yesterday = datetime.date.today() + datetime.timedelta(-1)
-            pubday = datetime.date(d[0], d[1], d[2])
-            if pubday == yesterday and filter(entry.title):
+            if d is None:
+                continue
+            pubday = _utc_struct_to_beijing_date(d)
+            if pubday == target_date and filter(entry.title):
                 item = {entry.title: entry.link}
                 print(item)
                 result |= item
@@ -106,31 +127,6 @@ def parseThread(conf: dict, url: str, proxy_url=''):
         console.print(f'[-] failed: {url}', style='bold red')
         print(e)
     return title, result
-
-
-async def init_bot(conf: dict, proxy_url=''):
-    """初始化机器人"""
-    bots = []
-    for name, v in conf.items():
-        if v['enabled']:
-            key = os.getenv(v['secrets']) or v['key']
-
-            if name == 'mail':
-                receiver = os.getenv(v['secrets_receiver']) or v['receiver']
-                bot = globals()[f'{name}Bot'](v['address'], key, receiver, v['from'], v['server'])
-                bots.append(bot)
-            elif name == 'qq':
-                bot = globals()[f'{name}Bot'](v['group_id'])
-                if await bot.start_server(v['qq_id'], key):
-                    bots.append(bot)
-            elif name == 'telegram':
-                bot = globals()[f'{name}Bot'](key, v['chat_id'], proxy_url)
-                if await bot.test_connect():
-                    bots.append(bot)
-            else:
-                bot = globals()[f'{name}Bot'](key, proxy_url)
-                bots.append(bot)
-    return bots
 
 
 def init_rss(conf: dict, update: bool=False, proxy_url=''):
@@ -165,14 +161,20 @@ def init_rss(conf: dict, update: bool=False, proxy_url=''):
     return feeds
 
 
-def cleanup():
-    """结束清理"""
-    qqBot.kill_server()
-
-
-async def job(args):
+def job(args):
     """定时任务"""
-    print(f'{pyfiglet.figlet_format("yarb")}\n{today}')
+    # 解析目标日期：--date YYYY-MM-DD，默认昨天（北京时间）
+    target_date = (_beijing_now() - datetime.timedelta(days=1)).date()
+    target_date_str = target_date.strftime("%Y-%m-%d")
+    if args.date:
+        try:
+            target_date = datetime.datetime.strptime(args.date, "%Y-%m-%d").date()
+            target_date_str = args.date
+        except ValueError:
+            console.print(f'[-] 日期格式错误：{args.date}，应为 YYYY-MM-DD', style='bold red')
+            return
+
+    print(f'{pyfiglet.figlet_format("yarb")}\n{target_date_str}')
 
     global root_path
     root_path = Path(__file__).absolute().parent
@@ -195,9 +197,9 @@ async def job(args):
         numb = 0
         tasks = []
         with ThreadPoolExecutor(100) as executor:
-            tasks.extend(executor.submit(parseThread, conf['keywords'], url, proxy_rss) for url in feeds)
+            tasks.extend(executor.submit(parseThread, conf['keywords'], url, proxy_rss, target_date) for url in feeds)
             for task in as_completed(tasks):
-                title, result = task.result()            
+                title, result = task.result()
                 if result:
                     numb += len(result.values())
                     results.append({title: result})
@@ -209,34 +211,30 @@ async def job(args):
         #     console.print(f'[+] temp data: {temp_path}', style='bold yellow')
 
         # 更新today
-        update_today(results)
-
-    # 推送文章
-    proxy_bot = conf['proxy']['url'] if conf['proxy']['bot'] else ''
-    bots = await init_bot(conf['bot'], proxy_bot)
-    for bot in bots:
-        await bot.send(bot.parse_results(results))
-
-    cleanup()
+        update_today(results, target_date_str)
 
 
 def argument():
     parser = argparse.ArgumentParser()
     parser.add_argument('--update', help='Update RSS config file', action='store_true', required=False)
+    parser.add_argument('--date', help='Target date in YYYY-MM-DD format (defaults to yesterday, used for backfilling missed archives)', type=str, required=False)
     parser.add_argument('--cron', help='Execute scheduled tasks every day (eg:"11:00")', type=str, required=False)
     parser.add_argument('--config', help='Use specified config file', type=str, required=False)
-    parser.add_argument('--test', help='Test bot', action='store_true', required=False)
+    parser.add_argument('--test', help='Test with synthetic data', action='store_true', required=False)
     return parser.parse_args()
 
-async def main():
+def main():
     args = argument()
+    if args.cron and args.date:
+        print('错误：--cron 和 --date 不能同时使用。补录历史请使用 --date，定时任务请使用 --cron。')
+        return
     if args.cron:
         schedule.every().day.at(args.cron).do(job, args)
         while True:
             schedule.run_pending()
-            await asyncio.sleep(1)
+            time.sleep(1)
     else:
-        await job(args)
+        job(args)
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    main()

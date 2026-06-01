@@ -16,19 +16,11 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v3
         with:
-          python-version: '3.x'
+          python-version: '3.14'
       - name: Install dependencies
         run: ./install.sh
 
-      - name: Push articles
-        env:
-          FEISHU_KEY: ${{ secrets.FEISHU_KEY }}
-          WECOM_KEY: ${{ secrets.WECOM_KEY }}
-          DINGTALK_KEY: ${{ secrets.DINGTALK_KEY }}
-          QQ_KEY: ${{ secrets.QQ_KEY }}
-          TELEGRAM_KEY: ${{ secrets.TELEGRAM_KEY }}
-          MAIL_KEY: ${{ secrets.MAIL_KEY }}
-          MAIL_RECEIVER: ${{ secrets.MAIL_RECEIVER }}
+      - name: Generate daily report
         run: python3 yarb.py
 
       - name: Commit
