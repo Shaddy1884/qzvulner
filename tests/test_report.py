@@ -31,7 +31,9 @@ class ReportStoreTest(unittest.TestCase):
 """,
             encoding="utf-8",
         )
-        self.store = ReportStore(self.root, today=date(2026, 5, 28))
+        # today.md 日期是 2026-05-28，所以设置 self.today 为 2026-05-29
+        # 这样 expected_date = 2026-05-28 才能匹配
+        self.store = ReportStore(self.root, today=date(2026, 5, 29))
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -46,8 +48,9 @@ class ReportStoreTest(unittest.TestCase):
         text = self.store.recent_report(3)
 
         self.assertIn("2026-05-28", text)
-        self.assertIn("2026-05-26", text)
-        self.assertIn("缺失归档：2026-05-27", text)
+        # 2026-05-29 和 2026-05-27 缺失
+        self.assertIn("缺失归档：2026-05-29", text)
+        self.assertIn("2026-05-27", text)
 
     def test_keyword_search_scans_all_archived_titles(self):
         text = self.store.keyword_report("RCE")
@@ -78,11 +81,23 @@ class ReportStoreTest(unittest.TestCase):
         self.assertNotIn("SourceForge", text)
 
     def test_empty_today_reports_no_news(self):
+        # 创建空的 today.md，日期为昨天（2026-05-28）
         (self.root / "today.md").write_text("# 每日安全资讯（2026-05-28）\n\n", encoding="utf-8")
 
         text = self.store.today_report()
 
         self.assertIn("今日暂无安全情报", text)
+
+    def test_stale_today_warns_about_outdated_file(self):
+        # today.md 日期是 2026-05-28，但今天已经是 2026-05-30
+        # 期望的日期应该是 2026-05-29（昨天），实际是 2026-05-28（前天）
+        store = ReportStore(self.root, today=date(2026, 5, 30))
+
+        text = store.today_report()
+
+        self.assertIn("2026-05-30", text)
+        self.assertIn("尚未更新", text)
+        self.assertIn("2026-05-28", text)
 
 
 class CommandHandlerTest(unittest.TestCase):

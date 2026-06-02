@@ -54,6 +54,13 @@ class ReportStore:
         if not path.exists():
             return self._empty_today()
         text = path.read_text(encoding="utf-8")
+        # yarb.py 今天生成的是昨天的资讯，标题日期应为昨天
+        expected_date = (self.today - timedelta(days=1)).isoformat()
+        date_match = DATE_RE.search(text)
+        if date_match:
+            file_date = date_match.group("date")
+            if file_date != expected_date:
+                return self._stale_today(file_date, expected_date)
         if not parse_report_markdown(text, self.today.isoformat()):
             return self._empty_today()
         return text.strip()
@@ -142,6 +149,13 @@ class ReportStore:
 
     def _empty_today(self) -> str:
         return f"每日安全情报（{self.today.isoformat()}）\n\n今日暂无安全情报。"
+
+    def _stale_today(self, file_date: str, expected_date: str) -> str:
+        return (
+            f"每日安全情报（{self.today.isoformat()}）\n\n"
+            f"⚠️ today.md 尚未更新（期望日期 {expected_date}，"
+            f"实际日期 {file_date}），日报抓取任务可能未正常运行。"
+        )
 
     @staticmethod
     def _format_day(day: str, articles: list[Article]) -> str:
