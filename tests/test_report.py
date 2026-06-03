@@ -2,6 +2,7 @@ import tempfile
 import unittest
 from datetime import date
 from pathlib import Path
+from unittest.mock import patch
 
 from report import ReportStore, execute_route, handle_command
 
@@ -98,6 +99,42 @@ class ReportStoreTest(unittest.TestCase):
         self.assertIn("2026-05-30", text)
         self.assertIn("尚未更新", text)
         self.assertIn("2026-05-28", text)
+
+    def test_today_report_defaults_to_beijing_yesterday(self):
+        (self.root / "today.md").write_text(
+            """# 每日安全资讯（2026-06-02）
+
+- 测试源
+  - [TongWeb 安全漏洞通报](https://example.com/tongweb)
+""",
+            encoding="utf-8",
+        )
+
+        with patch("report.beijing_today", return_value=date(2026, 6, 3)):
+            store = ReportStore(self.root)
+            text = store.today_report()
+
+        self.assertIn("每日安全资讯（2026-06-02）", text)
+        self.assertIn("TongWeb 安全漏洞通报", text)
+        self.assertNotIn("尚未更新", text)
+
+    def test_today_report_default_still_warns_when_beijing_date_is_stale(self):
+        (self.root / "today.md").write_text(
+            """# 每日安全资讯（2026-06-01）
+
+- 测试源
+  - [旧日报](https://example.com/old)
+""",
+            encoding="utf-8",
+        )
+
+        with patch("report.beijing_today", return_value=date(2026, 6, 3)):
+            store = ReportStore(self.root)
+            text = store.today_report()
+
+        self.assertIn("尚未更新", text)
+        self.assertIn("期望日期 2026-06-02", text)
+        self.assertIn("实际日期 2026-06-01", text)
 
 
 class CommandHandlerTest(unittest.TestCase):

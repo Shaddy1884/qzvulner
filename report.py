@@ -5,7 +5,7 @@ import re
 import subprocess
 import sys
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +13,7 @@ from typing import Any
 ARTICLE_RE = re.compile(r"^\s{2}- \[(?P<title>.+?)\]\((?P<url>.+?)\)\s*$")
 SOURCE_RE = re.compile(r"^- (?P<source>.+?)\s*$")
 DATE_RE = re.compile(r"每日安全资讯（(?P<date>\d{4}-\d{2}-\d{2})）")
+BEIJING_TZ = timezone(timedelta(hours=8))
 
 
 @dataclass(frozen=True)
@@ -46,7 +47,7 @@ def parse_report_markdown(text: str, fallback_day: str = "") -> list[Article]:
 class ReportStore:
     def __init__(self, root: Path | str = ".", today: date | None = None, config: str | None = None) -> None:
         self.root = Path(root)
-        self.today = today or date.today()
+        self.today = today or beijing_today()
         self.config = config
 
     def today_report(self) -> str:
@@ -185,6 +186,10 @@ def _keyword_matches(value: str, keyword: str) -> bool:
         pattern = rf"(?<![A-Za-z0-9]){re.escape(keyword)}(?![A-Za-z0-9])"
         return bool(re.search(pattern, value, re.IGNORECASE))
     return keyword.lower() in value.lower()
+
+
+def beijing_today() -> date:
+    return datetime.now(BEIJING_TZ).date()
 
 
 def handle_command(

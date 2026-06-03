@@ -21,6 +21,8 @@
 <outline text="奇安信威胁情报中心" title="奇安信威胁情报中心" type="rss" xmlUrl="https://wechat2rss.xlab.app/feed/b93962f981247c0091dad08df5b7a6864ab888e9.xml" htmlUrl="https://wechat2rss.xlab.app/feed/b93962f981247c0091dad08df5b7a6864ab888e9.xml"/>
 <outline text="绿盟科技CERT" title="绿盟科技CERT" type="rss" xmlUrl="https://wechat2rss.xlab.app/feed/aa2ff3b0167a3f449f3b116717b5350ab64df8c3.xml" htmlUrl="https://wechat2rss.xlab.app/feed/aa2ff3b0167a3f449f3b116717b5350ab64df8c3.xml"/>
 <outline text="CNNVD安全动态" title="CNNVD安全动态" type="rss" xmlUrl="https://wechat2rss.xlab.app/feed/899e0eaf0e3ea7abac0211b3db9bb39c616e3255.xml" htmlUrl="https://wechat2rss.xlab.app/feed/899e0eaf0e3ea7abac0211b3db9bb39c616e3255.xml"/>
-</body>
+<outline type="rss" htmlUrl="http://192.168.8.4:4000/feeds/MP_WXS_3948375590.atom" text="360漏洞研究院" title="360漏洞研究院" xmlUrl="http://192.168.8.4:4000/feeds/MP_WXS_3948375590.atom" />
+<outline type="rss" htmlUrl="http://192.168.8.4:4000/feeds/MP_WXS_2396046820.atom" text="FreeBuf" title="FreeBuf" xmlUrl="http://192.168.8.4:4000/feeds/MP_WXS_2396046820.atom" />
+<outline type="rss" htmlUrl="http://192.168.8.4:4000/feeds/MP_WXS_3623332796.atom" text="漏洞小助手" title="漏洞小助手" xmlUrl="http://192.168.8.4:4000/feeds/MP_WXS_3623332796.atom" />
 </body>
 </opml>
