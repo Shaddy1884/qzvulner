@@ -85,25 +85,29 @@ python3 wecom_ai_bot.py --config config.json
 
 #### 手动推送（一次性模式）
 
-当日报抓取任务出错或错过自动推送时间后，可先补录再手动推送：
+当日报抓取任务出错或错过自动推送时间后，可先补录再手动推送。
+
+**前提：** 常驻 bot 必须在运行中（手动推送通过文件 IPC 复用 bot 的 WebSocket 连接，不会断开 bot）：
 
 ```sh
 # 1. 补录指定日期的报告（更新 today.md + archive/）
 python3 yarb.py --date 2026-06-10
 
-# 2. 手动推送到企业微信群
+# 2. 手动推送到企业微信群（通过常驻 bot 的 WebSocket，不建立新连接）
 python3 wecom_ai_bot.py --config config.json --push-today
 
 # 或直接推送指定归档日期
 python3 wecom_ai_bot.py --config config.json --push-date 2026-06-10
 ```
 
-手动推送模式会校验报告是否就绪：文件不存在、标题日期不匹配或内容为空时，打印错误信息并以非零 exit code 退出，不会发送任何消息。校验通过后推送到 `config.json` → `wecom_ai_bot.allowed_chats` 中的所有群聊。
+**工作原理：** CLI 校验报告 → 写入 `.push_request.json` → 常驻 bot 主循环检测到请求 → 用现有 WebSocket 推送 → 写入 `.push_result.json` → CLI 读取结果退出。
+
+校验失败时打印错误并以非零 exit code 退出，不会生成请求文件。校验通过后由 bot 推送到 `config.json` → `wecom_ai_bot.allowed_chats` 中的所有群聊。
 
 | Exit code | 含义 |
 |-----------|------|
 | `0` | 推送成功 |
-| `1` | 校验失败（报告未就绪）或 WebSocket 连接失败 |
+| `1` | 校验失败（报告未就绪）或等待 bot 处理超时 |
 | `2` | `--push-today` 和 `--push-date` 同时指定（互斥） |
 
 #### 后台运行

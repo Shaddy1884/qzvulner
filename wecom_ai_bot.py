@@ -293,67 +293,55 @@ class WeComAIBotRunner:
                 })
             logger.info(f"已推送每日情报到群 {chat_id}")
 
-    async def push_today_manual(self) -> bool:
-        """手动推送 today.md 报告（校验失败时打印错误并返回 False）。
+    async def _process_push_request(self, request: dict) -> None:
+        """处理来自 CLI 的推送请求，复用当前 WebSocket 连接。
 
-        Returns:
-            True 表示推送成功，False 表示报告未就绪。
+        读取 .push_request.json，校验并推送到 allowed_chats，
+        结果写入 .push_result.json。
         """
-        result = self.store.today_report()
+        root = self.store.root
+        result_path = root / ".push_result.json"
+
+        action = request.get("action", "")
+        date_str = request.get("date", "")
+
+        if action == "push_today":
+            result = self.store.today_report()
+            label = "今日安全情报"
+        elif action == "push_archive":
+            result = self.store.get_archive_report(date_str)
+            label = f"归档报告 {date_str}"
+        else:
+            result_path.write_text(json.dumps({
+                "success": False, "message": f"未知操作：{action}",
+            }, ensure_ascii=False), encoding="utf-8")
+            return
+
         if not result.ready:
-            logger.error(f"today.md 尚未就绪，无法推送：{result.text}")
-            print(f"错误：{result.text}", file=sys.stderr)
-            return False
-        logger.info(f"开始手动推送今日安全情报，目标群: {len(self.allowed_chats)} 个")
+            result_path.write_text(json.dumps({
+                "success": False, "message": result.text,
+            }, ensure_ascii=False), encoding="utf-8")
+            return
+
+        logger.info(f"[IPC] 开始推送{label}，目标群: {len(self.allowed_chats)} 个")
         for chat_id in self.allowed_chats:
             for chunk in split_message(result.text):
                 await self.client.send_message(chat_id, {
                     "msgtype": "markdown",
                     "markdown": {"content": chunk},
                 })
-            logger.info(f"已推送今日情报到群 {chat_id}")
-        return True
+            logger.info(f"[IPC] 已推送{label}到群 {chat_id}")
 
-    async def push_archive(self, date_str: str) -> bool:
-        """手动推送指定日期的归档报告。
-
-        Args:
-            date_str: YYYY-MM-DD 格式的日期字符串。
-
-        Returns:
-            True 表示推送成功，False 表示报告未就绪。
-        """
-        result = self.store.get_archive_report(date_str)
-        if not result.ready:
-            logger.error(f"归档报告未就绪：{result.text}")
-            print(f"错误：{result.text}", file=sys.stderr)
-            return False
-        logger.info(f"开始手动推送归档报告 {date_str}，目标群: {len(self.allowed_chats)} 个")
-        for chat_id in self.allowed_chats:
-            for chunk in split_message(result.text):
-                await self.client.send_message(chat_id, {
-                    "msgtype": "markdown",
-                    "markdown": {"content": chunk},
-                })
-            logger.info(f"已推送归档报告 {date_str} 到群 {chat_id}")
-        return True
+        result_path.write_text(json.dumps({
+            "success": True,
+            "message": f"{label}已推送到 {len(self.allowed_chats)} 个群聊",
+        }, ensure_ascii=False), encoding="utf-8")
 
     async def start(self) -> None:
         self.client.on("message.text", self.handle_text)
         self.client.on("authenticated", lambda: logger.info("企业微信智能机器人认证成功"))
         self.client.on("error", lambda error: logger.error(f"企业微信智能机器人错误：{error}"))
-
-        # 监听连接断开：服务端主动断开（如手动推送命令新连接挤掉旧连接）时，
-        # 等待手动推送完成后自动重连，避免常驻 bot 退出。
-        def _on_disconnected(reason: str) -> None:
-            logger.warning(f"WebSocket 连接断开：{reason}")
-            started = getattr(self.client, "_started", True)
-            if not started:
-                logger.warning("服务端主动断开连接（可能因手动推送或新连接建立），"
-                               "bot 将在 5 秒后尝试重连...")
-                asyncio.create_task(self._reconnect_after_delay(5))
-
-        self.client.on("disconnected", _on_disconnected)
+        self.client.on("disconnected", lambda reason: logger.warning(f"WebSocket 连接断开：{reason}"))
         self.client.on("reconnecting", lambda attempt: logger.info(f"正在重连...（第 {attempt} 次）"))
 
         schedule.every().day.at(self.daily_push_time).do(
@@ -365,31 +353,30 @@ class WeComAIBotRunner:
                     f"联网搜索: {'已启用' if self.web_search else '未启用'}")
         await self.client.connect()
 
-        # 主循环：等待关闭信号（不依赖 is_connected，SDK 自行处理重连）
+        # 主循环：处理定时任务 + IPC 推送请求 + 等待关闭信号
         try:
             while not self._shutdown_event.is_set():
                 schedule.run_pending()
+                await self._check_push_requests()
                 try:
                     await asyncio.wait_for(self._shutdown_event.wait(), timeout=1.0)
                     break  # 收到关闭信号，退出循环
                 except asyncio.TimeoutError:
                     pass  # 超时继续循环
         finally:
-            # 确保连接正常关闭
             await self.shutdown()
 
-    async def _reconnect_after_delay(self, delay: float) -> None:
-        """延迟重连：等待手动推送等短时操作完成后再重新建立 WebSocket。"""
-        await asyncio.sleep(delay)
-        if self._shutdown_event.is_set():
+    async def _check_push_requests(self) -> None:
+        """检查 CLI 发来的手动推送请求文件，复用当前 WebSocket 处理。"""
+        req_path = self.store.root / ".push_request.json"
+        if not req_path.exists():
             return
-        logger.info("正在重新连接企业微信...")
         try:
-            await self.client.connect()
-            logger.info("重连成功，bot 已恢复正常")
-        except Exception as e:
-            logger.error(f"重连失败：{e}，bot 即将退出")
-            self._shutdown_event.set()
+            request = json.loads(req_path.read_text(encoding="utf-8"))
+            req_path.unlink()  # 删除请求文件，防止重复处理
+            await self._process_push_request(request)
+        except (json.JSONDecodeError, OSError) as e:
+            logger.error(f"[IPC] 读取推送请求失败：{e}")
 
     async def shutdown(self) -> None:
         """优雅关闭 WebSocket 连接。"""
@@ -476,33 +463,57 @@ async def async_main() -> None:
 
     setup_logging(log_file=args.log, level=args.log_level)
 
-    # --- 手动推送模式 ---
+    # --- 手动推送模式（通过文件 IPC 复用常驻 bot 的 WebSocket） ---
     if args.push_date or args.push_today:
         if args.push_date and args.push_today:
-            logger.error("--push-today 和 --push-date 不能同时使用。")
+            print("错误：--push-today 和 --push-date 不能同时使用。", file=sys.stderr)
             sys.exit(2)
 
-        logger.info("=" * 50)
-        logger.info("手动推送模式启动")
-        logger.info("=" * 50)
+        config_path = Path(args.config).expanduser().absolute()
+        root = config_path.parent
+        store = ReportStore(root, config=str(config_path))
 
-        runner = load_runner(Path(args.config).expanduser().absolute())
-        try:
-            await runner.client.connect()
-        except Exception as e:
-            logger.error(f"WebSocket 连接失败：{e}")
+        # 1. 校验报告是否就绪
+        if args.push_date:
+            result = store.get_archive_report(args.push_date)
+            request = {"action": "push_archive", "date": args.push_date}
+        else:
+            result = store.today_report()
+            request = {"action": "push_today", "date": ""}
+
+        if not result.ready:
+            print(f"错误：{result.text}", file=sys.stderr)
             sys.exit(1)
 
-        success = False
-        try:
-            if args.push_date:
-                success = await runner.push_archive(args.push_date)
-            else:
-                success = await runner.push_today_manual()
-        finally:
-            await runner.shutdown()
+        # 2. 写入请求文件，由常驻 bot 处理
+        req_path = root / ".push_request.json"
+        result_path = root / ".push_result.json"
+        result_path.unlink(missing_ok=True)  # 清理旧结果
 
-        sys.exit(0 if success else 1)
+        req_path.write_text(json.dumps(request, ensure_ascii=False), encoding="utf-8")
+        logger.info(f"已发送推送请求：{request['action']}，等待常驻 bot 处理...")
+
+        # 3. 轮询等待结果（超时 30 秒）
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            if result_path.exists():
+                try:
+                    outcome = json.loads(result_path.read_text(encoding="utf-8"))
+                    result_path.unlink()
+                    if outcome.get("success"):
+                        logger.info(outcome["message"])
+                        print(outcome["message"])
+                        sys.exit(0)
+                    else:
+                        logger.error(outcome.get("message", "未知错误"))
+                        print(f"错误：{outcome.get('message', '未知错误')}", file=sys.stderr)
+                        sys.exit(1)
+                except (json.JSONDecodeError, OSError):
+                    pass  # 文件可能正在写入，重试
+            await asyncio.sleep(0.5)
+
+        print("错误：等待常驻 bot 处理超时（30 秒），请确认 bot 正在运行。", file=sys.stderr)
+        sys.exit(1)
 
     # --- 正常长驻 Bot 模式 ---
     logger.info("=" * 50)

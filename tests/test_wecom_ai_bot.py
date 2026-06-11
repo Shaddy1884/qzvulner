@@ -277,9 +277,9 @@ class WeComAIBotRunnerTest(unittest.TestCase):
 
         self.assertEqual(client.sent, [])
 
-    def test_push_archive_sends_to_allowed_chats(self):
-        """push_archive 推送归档报告到所有白名单群聊。"""
-        # 创建归档文件
+    def test_process_push_request_archive_sends_to_allowed_chats(self):
+        """_process_push_request(push_archive) 推送归档报告到所有白名单群聊。"""
+        import json
         root = Path(self.tmp.name)
         archive = root / "archive" / "2026"
         archive.mkdir(parents=True, exist_ok=True)
@@ -295,24 +295,32 @@ class WeComAIBotRunnerTest(unittest.TestCase):
         client = FakeClient()
         runner = WeComAIBotRunner(client, store, allowed_chats={"chat-1", "chat-2"})
 
-        asyncio.run(runner.push_archive("2026-05-28"))
+        asyncio.run(runner._process_push_request({"action": "push_archive", "date": "2026-05-28"}))
 
         self.assertEqual([item[0] for item in client.sent], ["chat-1", "chat-2"])
         self.assertEqual(client.sent[0][1]["msgtype"], "markdown")
         self.assertIn("test RCE", client.sent[0][1]["markdown"]["content"])
+        # 验证结果文件
+        outcome = json.loads((root / ".push_result.json").read_text(encoding="utf-8"))
+        self.assertTrue(outcome["success"])
 
-    def test_push_archive_skips_when_file_missing(self):
-        """归档文件不存在时 push_archive 返回 False 且不发送消息。"""
+    def test_process_push_request_skips_when_file_missing(self):
+        """归档文件不存在时写入失败结果且不发送消息。"""
+        import json
+        root = Path(self.tmp.name)
         client = FakeClient()
         runner = WeComAIBotRunner(client, self.store, allowed_chats={"chat-1"})
 
-        success = asyncio.run(runner.push_archive("2099-01-01"))
+        asyncio.run(runner._process_push_request({"action": "push_archive", "date": "2099-01-01"}))
 
-        self.assertFalse(success)
         self.assertEqual(client.sent, [])
+        outcome = json.loads((root / ".push_result.json").read_text(encoding="utf-8"))
+        self.assertFalse(outcome["success"])
+        self.assertIn("不存在", outcome["message"])
 
-    def test_push_archive_skips_when_title_mismatch(self):
-        """归档文件标题日期不匹配时 push_archive 返回 False。"""
+    def test_process_push_request_skips_when_title_mismatch(self):
+        """归档文件标题日期不匹配时写入失败结果。"""
+        import json
         root = Path(self.tmp.name)
         archive = root / "archive" / "2026"
         archive.mkdir(parents=True, exist_ok=True)
@@ -325,32 +333,42 @@ class WeComAIBotRunnerTest(unittest.TestCase):
         client = FakeClient()
         runner = WeComAIBotRunner(client, store, allowed_chats={"chat-1"})
 
-        success = asyncio.run(runner.push_archive("2026-05-25"))
+        asyncio.run(runner._process_push_request({"action": "push_archive", "date": "2026-05-25"}))
 
-        self.assertFalse(success)
         self.assertEqual(client.sent, [])
+        outcome = json.loads((root / ".push_result.json").read_text(encoding="utf-8"))
+        self.assertFalse(outcome["success"])
+        self.assertIn("不匹配", outcome["message"])
 
-    def test_push_today_manual_sends_to_allowed_chats(self):
-        """push_today_manual 推送今日报告到所有白名单群聊。"""
+    def test_process_push_request_today_sends_to_allowed_chats(self):
+        """_process_push_request(push_today) 推送今日报告到所有白名单群聊。"""
+        import json
+        root = Path(self.tmp.name)
         client = FakeClient()
         runner = WeComAIBotRunner(client, self.store, allowed_chats={"chat-1", "chat-2"})
 
-        asyncio.run(runner.push_today_manual())
+        asyncio.run(runner._process_push_request({"action": "push_today", "date": ""}))
 
         self.assertEqual([item[0] for item in client.sent], ["chat-1", "chat-2"])
         self.assertIn("test RCE", client.sent[0][1]["markdown"]["content"])
+        outcome = json.loads((root / ".push_result.json").read_text(encoding="utf-8"))
+        self.assertTrue(outcome["success"])
 
-    def test_push_today_manual_skips_when_not_ready(self):
-        """today.md 不存在时 push_today_manual 返回 False。"""
-        (Path(self.tmp.name) / "today.md").unlink()
-        store = ReportStore(Path(self.tmp.name), today=date(2026, 5, 29))
+    def test_process_push_request_today_skips_when_not_ready(self):
+        """today.md 不存在时写入失败结果且不发送消息。"""
+        import json
+        root = Path(self.tmp.name)
+        (root / "today.md").unlink()
+        store = ReportStore(root, today=date(2026, 5, 29))
         client = FakeClient()
         runner = WeComAIBotRunner(client, store, allowed_chats={"chat-1"})
 
-        success = asyncio.run(runner.push_today_manual())
+        asyncio.run(runner._process_push_request({"action": "push_today", "date": ""}))
 
-        self.assertFalse(success)
         self.assertEqual(client.sent, [])
+        outcome = json.loads((root / ".push_result.json").read_text(encoding="utf-8"))
+        self.assertFalse(outcome["success"])
+        self.assertIn("暂无安全情报", outcome["message"])
 
     def test_private_chat_replies_via_send_message(self):
         """私聊：使用 send_message 回复，目标为发送者的 userid。"""
