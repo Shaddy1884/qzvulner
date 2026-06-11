@@ -371,6 +371,13 @@ class WeComAIBotRunner:
                     f"联网搜索: {'已启用' if self.web_search else '未启用'}")
         await self.client.connect()
 
+        # 清理上次运行遗留的 IPC 请求/结果文件，避免误处理
+        for ipc_file in (".push_request.json", ".push_result.json"):
+            p = self.store.root / ipc_file
+            if p.exists():
+                p.unlink()
+                logger.info(f"已清理遗留的 {ipc_file}")
+
         # 主循环：处理定时任务 + IPC 推送请求 + 等待关闭信号
         logger.info("Bot 已进入主循环，等待消息和定时任务...")
         try:
@@ -395,6 +402,8 @@ class WeComAIBotRunner:
 
     async def _check_push_requests(self) -> None:
         """检查 CLI 发来的手动推送请求文件，复用当前 WebSocket 处理。"""
+        if not getattr(self.client, "is_connected", False):
+            return  # WebSocket 未就绪，跳过
         req_path = self.store.root / ".push_request.json"
         if not req_path.exists():
             return
