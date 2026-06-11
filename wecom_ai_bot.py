@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import signal
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -279,15 +280,63 @@ class WeComAIBotRunner:
             await self.client.reply_stream(frame, stream_id, text, True)
 
     async def push_daily(self) -> None:
+        result = self.store.today_report()
+        if not result.ready:
+            logger.warning("today.md 尚未就绪，跳过每日推送")
+            return
         logger.info(f"开始推送每日安全情报，目标群: {len(self.allowed_chats)} 个")
-        report = self.store.today_report()
         for chat_id in self.allowed_chats:
-            for chunk in split_message(report):
+            for chunk in split_message(result.text):
                 await self.client.send_message(chat_id, {
                     "msgtype": "markdown",
                     "markdown": {"content": chunk},
                 })
             logger.info(f"已推送每日情报到群 {chat_id}")
+
+    async def push_today_manual(self) -> bool:
+        """手动推送 today.md 报告（校验失败时打印错误并返回 False）。
+
+        Returns:
+            True 表示推送成功，False 表示报告未就绪。
+        """
+        result = self.store.today_report()
+        if not result.ready:
+            logger.error(f"today.md 尚未就绪，无法推送：{result.text}")
+            print(f"错误：{result.text}", file=sys.stderr)
+            return False
+        logger.info(f"开始手动推送今日安全情报，目标群: {len(self.allowed_chats)} 个")
+        for chat_id in self.allowed_chats:
+            for chunk in split_message(result.text):
+                await self.client.send_message(chat_id, {
+                    "msgtype": "markdown",
+                    "markdown": {"content": chunk},
+                })
+            logger.info(f"已推送今日情报到群 {chat_id}")
+        return True
+
+    async def push_archive(self, date_str: str) -> bool:
+        """手动推送指定日期的归档报告。
+
+        Args:
+            date_str: YYYY-MM-DD 格式的日期字符串。
+
+        Returns:
+            True 表示推送成功，False 表示报告未就绪。
+        """
+        result = self.store.get_archive_report(date_str)
+        if not result.ready:
+            logger.error(f"归档报告未就绪：{result.text}")
+            print(f"错误：{result.text}", file=sys.stderr)
+            return False
+        logger.info(f"开始手动推送归档报告 {date_str}，目标群: {len(self.allowed_chats)} 个")
+        for chat_id in self.allowed_chats:
+            for chunk in split_message(result.text):
+                await self.client.send_message(chat_id, {
+                    "msgtype": "markdown",
+                    "markdown": {"content": chunk},
+                })
+            logger.info(f"已推送归档报告 {date_str} 到群 {chat_id}")
+        return True
 
     async def start(self) -> None:
         self.client.on("message.text", self.handle_text)
@@ -392,10 +441,43 @@ async def async_main() -> None:
     parser.add_argument("--log-level", default="INFO",
                         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
                         help="日志级别 (默认: INFO)")
+    parser.add_argument("--push-today", action="store_true",
+                        help="手动推送今日报告（today.md），验证通过后推送并退出")
+    parser.add_argument("--push-date", metavar="YYYY-MM-DD",
+                        help="手动推送指定日期的归档报告，验证通过后推送并退出")
     args = parser.parse_args()
 
     setup_logging(log_file=args.log, level=args.log_level)
 
+    # --- 手动推送模式 ---
+    if args.push_date or args.push_today:
+        if args.push_date and args.push_today:
+            logger.error("--push-today 和 --push-date 不能同时使用。")
+            sys.exit(2)
+
+        logger.info("=" * 50)
+        logger.info("手动推送模式启动")
+        logger.info("=" * 50)
+
+        runner = load_runner(Path(args.config).expanduser().absolute())
+        try:
+            await runner.client.connect()
+        except Exception as e:
+            logger.error(f"WebSocket 连接失败：{e}")
+            sys.exit(1)
+
+        success = False
+        try:
+            if args.push_date:
+                success = await runner.push_archive(args.push_date)
+            else:
+                success = await runner.push_today_manual()
+        finally:
+            await runner.shutdown()
+
+        sys.exit(0 if success else 1)
+
+    # --- 正常长驻 Bot 模式 ---
     logger.info("=" * 50)
     logger.info("企业微信 AI 机器人启动")
     logger.info("=" * 50)

@@ -4,7 +4,7 @@ from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 
-from report import ReportStore, execute_route, handle_command
+from report import ReportResult, ReportStore, execute_route, handle_command
 
 
 SAMPLE_REPORT = """# 每日安全资讯（2026-05-28）
@@ -40,7 +40,7 @@ class ReportStoreTest(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_today_uses_cached_today_file(self):
-        text = self.store.today_report()
+        text = self.store.today_report().text
 
         self.assertIn("每日安全资讯（2026-05-28）", text)
         self.assertIn("Remote Code Execution", text)
@@ -85,7 +85,7 @@ class ReportStoreTest(unittest.TestCase):
         # 创建空的 today.md，日期为昨天（2026-05-28）
         (self.root / "today.md").write_text("# 每日安全资讯（2026-05-28）\n\n", encoding="utf-8")
 
-        text = self.store.today_report()
+        text = self.store.today_report().text
 
         self.assertIn("今日暂无安全情报", text)
 
@@ -94,7 +94,7 @@ class ReportStoreTest(unittest.TestCase):
         # 期望的日期应该是 2026-05-29（昨天），实际是 2026-05-28（前天）
         store = ReportStore(self.root, today=date(2026, 5, 30))
 
-        text = store.today_report()
+        text = store.today_report().text
 
         self.assertIn("2026-05-30", text)
         self.assertIn("尚未更新", text)
@@ -112,7 +112,7 @@ class ReportStoreTest(unittest.TestCase):
 
         with patch("report.beijing_today", return_value=date(2026, 6, 3)):
             store = ReportStore(self.root)
-            text = store.today_report()
+            text = store.today_report().text
 
         self.assertIn("每日安全资讯（2026-06-02）", text)
         self.assertIn("TongWeb 安全漏洞通报", text)
@@ -130,11 +130,97 @@ class ReportStoreTest(unittest.TestCase):
 
         with patch("report.beijing_today", return_value=date(2026, 6, 3)):
             store = ReportStore(self.root)
-            text = store.today_report()
+            text = store.today_report().text
 
         self.assertIn("尚未更新", text)
         self.assertIn("期望日期 2026-06-02", text)
         self.assertIn("实际日期 2026-06-01", text)
+
+    def test_auto_refresh_enabled_when_today_not_injected(self):
+        """未显式注入 today 时，_auto_refresh 为 True。"""
+        store = ReportStore(self.root)
+        self.assertTrue(store._auto_refresh)
+
+    def test_auto_refresh_disabled_when_today_injected(self):
+        """显式注入 today 后，_auto_refresh 为 False，不受外部日期影响。"""
+        store = ReportStore(self.root, today=date(2026, 6, 3))
+        self.assertFalse(store._auto_refresh)
+
+    def test_maybe_refresh_updates_today_on_boundary_cross(self):
+        """跨日后 _maybe_refresh_today 更新 self.today 为当前北京时间。"""
+        with patch("report.beijing_today", side_effect=[date(2026, 6, 3), date(2026, 6, 4)]):
+            store = ReportStore(self.root)  # today = 2026-06-03
+            store._maybe_refresh_today()
+            self.assertEqual(store.today, date(2026, 6, 4))
+
+    def test_maybe_refresh_noop_when_today_injected(self):
+        """注入 today 后 _maybe_refresh_today 是空操作，不覆盖注入值。"""
+        store = ReportStore(self.root, today=date(2026, 6, 3))
+        with patch("report.beijing_today", return_value=date(2026, 6, 4)):
+            store._maybe_refresh_today()
+            self.assertEqual(store.today, date(2026, 6, 3))
+
+    def test_today_report_ready_false_when_file_missing(self):
+        """today.md 不存在时 ready=False。"""
+        (self.root / "today.md").unlink()
+        result = self.store.today_report()
+        self.assertFalse(result.ready)
+        self.assertIn("今日暂无安全情报", result.text)
+
+    def test_today_report_ready_false_when_stale(self):
+        """today.md 日期过期时 ready=False。"""
+        store = ReportStore(self.root, today=date(2026, 5, 30))
+        result = store.today_report()
+        self.assertFalse(result.ready)
+        self.assertIn("尚未更新", result.text)
+
+    def test_today_report_ready_true_when_normal(self):
+        """today.md 日期匹配且内容有效时 ready=True。"""
+        result = self.store.today_report()
+        self.assertTrue(result.ready)
+        self.assertIn("Remote Code Execution", result.text)
+
+    def test_get_archive_report_ready_when_file_valid(self):
+        """归档文件存在、日期匹配、有文章时 ready=True。"""
+        result = self.store.get_archive_report("2026-05-28")
+        self.assertTrue(result.ready)
+        self.assertIn("Remote Code Execution", result.text)
+
+    def test_get_archive_report_not_ready_when_file_missing(self):
+        """归档文件不存在时 ready=False 并给出有用提示。"""
+        result = self.store.get_archive_report("2026-05-27")
+        self.assertFalse(result.ready)
+        self.assertIn("不存在", result.text)
+
+    def test_get_archive_report_not_ready_when_title_mismatch(self):
+        """归档文件标题日期与文件名不匹配时 ready=False。"""
+        archive = self.root / "archive" / "2026"
+        (archive / "2026-05-25.md").write_text(
+            "# 每日安全资讯（2026-05-24）\n\n"
+            "- Test\n  - [Article](https://example.com)\n",
+            encoding="utf-8",
+        )
+        result = self.store.get_archive_report("2026-05-25")
+        self.assertFalse(result.ready)
+        self.assertIn("不匹配", result.text)
+
+    def test_get_archive_report_not_ready_when_invalid_date(self):
+        """无效日期格式返回 ready=False。"""
+        result = self.store.get_archive_report("not-a-date")
+        self.assertFalse(result.ready)
+        self.assertIn("格式错误", result.text)
+
+    def test_get_archive_report_not_ready_when_no_articles(self):
+        """归档文件日期正确但无文章时 ready=False。"""
+        archive = self.root / "archive" / "2026"
+        (archive / "2026-05-25.md").write_text(
+            "# 每日安全资讯（2026-05-25）\n\n"
+            "> 今日暂无收录安全资讯。\n",
+            encoding="utf-8",
+        )
+        result = self.store.get_archive_report("2026-05-25")
+        self.assertFalse(result.ready)
+        self.assertIn("暂无安全情报", result.text)
 
 
 class CommandHandlerTest(unittest.TestCase):
@@ -142,7 +228,7 @@ class CommandHandlerTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         root = Path(self.tmp.name)
         (root / "today.md").write_text(SAMPLE_REPORT, encoding="utf-8")
-        self.store = ReportStore(root, today=date(2026, 5, 28))
+        self.store = ReportStore(root, today=date(2026, 5, 29))
 
     def tearDown(self):
         self.tmp.cleanup()

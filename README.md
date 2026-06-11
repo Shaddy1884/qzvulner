@@ -11,6 +11,7 @@ Fork 自 [VulnTotal-Team/yarb](https://github.com/VulnTotal-Team/yarb)，新增 
 - **企业微信 AI 机器人** — 群聊 + 私聊双模式，支持正则命令和 LLM 自然语言意图识别
 - **LLM 联网搜索** — LLM 查询扩展 → 并行 Tavily 搜索 → 去重 → 相关性重排序 → 摘要生成
 - **定时调度** — 内置 cron 模式，也可用 GitHub Actions 零成本运行
+- **手动推送** — 支持手动推送指定日期的安全报告到企业微信群，适用于补录后补推场景
 - **部署打包** — 一键生成可部署的 `.tar.gz` 包，包含完整归档历史
 
 ## 快速开始
@@ -67,11 +68,43 @@ python3 yarb.py --date 2026-05-28
 
 ### `wecom_ai_bot.py` — 企业微信 AI 机器人
 
+| 参数 | 说明 |
+|---|---|
+| `--config config.json` | 配置文件路径（默认 `config.json`） |
+| `--log bot.log` | 日志文件路径（同时输出到控制台和文件） |
+| `--log-level DEBUG` | 日志级别：DEBUG / INFO / WARNING / ERROR |
+| `--push-today` | 手动推送今日报告后退出（一次性模式） |
+| `--push-date YYYY-MM-DD` | 手动推送指定日期的归档报告后退出（一次性模式） |
+
+长驻进程，通过 WebSocket 连接企业微信。支持 SIGINT/SIGTERM 优雅关闭。
+
 ```sh
+# 长驻运行
 python3 wecom_ai_bot.py --config config.json
 ```
 
-长驻进程，通过 WebSocket 连接企业微信。支持 SIGINT/SIGTERM 优雅关闭。
+#### 手动推送（一次性模式）
+
+当日报抓取任务出错或错过自动推送时间后，可先补录再手动推送：
+
+```sh
+# 1. 补录指定日期的报告（更新 today.md + archive/）
+python3 yarb.py --date 2026-06-10
+
+# 2. 手动推送到企业微信群
+python3 wecom_ai_bot.py --config config.json --push-today
+
+# 或直接推送指定归档日期
+python3 wecom_ai_bot.py --config config.json --push-date 2026-06-10
+```
+
+手动推送模式会校验报告是否就绪：文件不存在、标题日期不匹配或内容为空时，打印错误信息并以非零 exit code 退出，不会发送任何消息。校验通过后推送到 `config.json` → `wecom_ai_bot.allowed_chats` 中的所有群聊。
+
+| Exit code | 含义 |
+|-----------|------|
+| `0` | 推送成功 |
+| `1` | 校验失败（报告未就绪）或 WebSocket 连接失败 |
+| `2` | `--push-today` 和 `--push-date` 同时指定（互斥） |
 
 #### 后台运行
 

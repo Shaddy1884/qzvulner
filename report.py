@@ -24,6 +24,13 @@ class Article:
     url: str
 
 
+@dataclass(frozen=True)
+class ReportResult:
+    """today_report() 的结构化返回值，避免通过魔法字符串判断报告状态。"""
+    text: str
+    ready: bool  # True 表示报告已就绪，可以推送
+
+
 def parse_report_markdown(text: str, fallback_day: str = "") -> list[Article]:
     match = DATE_RE.search(text)
     day = match.group("date") if match else fallback_day
@@ -49,24 +56,85 @@ class ReportStore:
         self.root = Path(root)
         self.today = today or beijing_today()
         self.config = config
+        # 仅在未显式注入 today 时自动刷新日期（测试注入 today 后不应被覆盖）
+        self._auto_refresh = today is None
 
-    def today_report(self) -> str:
+    def _maybe_refresh_today(self) -> None:
+        """长期运行的进程中，跨日后自动刷新 self.today 以避免缓存过期日期。"""
+        if self._auto_refresh:
+            self.today = beijing_today()
+
+    def today_report(self) -> ReportResult:
+        self._maybe_refresh_today()
         path = self.root / "today.md"
         if not path.exists():
-            return self._empty_today()
+            return ReportResult(self._empty_today(), ready=False)
         text = path.read_text(encoding="utf-8")
-        # yarb.py 今天生成的是昨天的资讯，标题日期应为昨天
+        # yarb.py 在 D 日（北京时间）生成的 today.md 标题日期为 D-1，
+        # 因此期望文件日期 = 当前北京时间日期 - 1
         expected_date = (self.today - timedelta(days=1)).isoformat()
         date_match = DATE_RE.search(text)
         if date_match:
             file_date = date_match.group("date")
             if file_date != expected_date:
-                return self._stale_today(file_date, expected_date)
+                return ReportResult(self._stale_today(file_date, expected_date), ready=False)
         if not parse_report_markdown(text, self.today.isoformat()):
-            return self._empty_today()
-        return text.strip()
+            return ReportResult(self._empty_today(), ready=False)
+        return ReportResult(text.strip(), ready=True)
+
+    def get_archive_report(self, date_str: str) -> ReportResult:
+        """校验并读取指定日期的归档报告。
+
+        Args:
+            date_str: YYYY-MM-DD 格式的日期字符串。
+
+        Returns:
+            ReportResult — ready=True 表示校验通过，text 为报告内容；
+            ready=False 时 text 为错误说明。
+        """
+        # 1. 校验日期格式
+        try:
+            date.fromisoformat(date_str)
+        except (ValueError, TypeError):
+            return ReportResult(
+                f"日期格式错误：{date_str}，应为 YYYY-MM-DD（例如 2026-06-10）。",
+                ready=False,
+            )
+
+        # 2. 构建路径并检查文件是否存在
+        year = date_str[:4]
+        path = self.root / "archive" / year / f"{date_str}.md"
+        if not path.exists():
+            return ReportResult(
+                f"归档文件不存在：{path}\n\n"
+                f"请先运行 yarb.py --date {date_str} 来生成该日期的归档报告。",
+                ready=False,
+            )
+
+        # 3. 读取文件并校验标题日期
+        text = path.read_text(encoding="utf-8")
+        date_match = DATE_RE.search(text)
+        if not date_match or date_match.group("date") != date_str:
+            file_date = date_match.group("date") if date_match else "未找到"
+            return ReportResult(
+                f"归档文件标题日期不匹配：文件名日期 {date_str}，"
+                f"标题日期 {file_date}。\n"
+                f"请检查文件 {path} 的标题是否正确。",
+                ready=False,
+            )
+
+        # 4. 校验内容不为空
+        articles = parse_report_markdown(text, date_str)
+        if not articles:
+            return ReportResult(
+                f"每日安全资讯（{date_str}）\n\n该日暂无安全情报。",
+                ready=False,
+            )
+
+        return ReportResult(text.strip(), ready=True)
 
     def recent_report(self, days: int) -> str:
+        self._maybe_refresh_today()
         sections: list[str] = [f"最近{days}天安全情报"]
         missing: list[str] = []
 
@@ -90,6 +158,7 @@ class ReportStore:
         return "\n\n".join(sections).strip()
 
     def keyword_report(self, keyword: str, limit: int = 20) -> str:
+        self._maybe_refresh_today()
         keyword = keyword.strip()
         if not keyword:
             return "请提供关键词，例如：关键词 RCE"
@@ -124,8 +193,7 @@ class ReportStore:
         result = subprocess.run(cmd, cwd=self.root, text=True, capture_output=True)
         if result.returncode != 0:
             return "刷新今日失败：\n" + (result.stderr or result.stdout).strip()
-        return self.today_report()
-
+        return self.today_report().text
     def _all_articles(self) -> list[Article]:
         seen: set[tuple[str, str, str, str]] = set()
         articles: list[Article] = []
@@ -241,7 +309,7 @@ def execute_command(
     if command.lower() == "id":
         return f"当前会话 ID：{conversation_id or 'unknown'}"
     if command in {"今日安全情报", "今日", "today"}:
-        return store.today_report()
+        return store.today_report().text
     if match := re.fullmatch(r"最近(\d+)天", command):
         return store.recent_report(int(match.group(1)))
     if command.startswith("关键词 "):
@@ -276,7 +344,7 @@ def execute_route(
     if action == "id":
         return f"当前会话 ID：{conversation_id or 'unknown'}"
     if action == "today":
-        return store.today_report()
+        return store.today_report().text
     if action == "recent":
         days = int(value) if value.isdigit() else 3
         return store.recent_report(max(1, min(days, 30)))
@@ -307,7 +375,7 @@ def main() -> None:
 
     store = ReportStore(args.root, config=args.config)
     if args.command == "today":
-        print(store.today_report())
+        print(store.today_report().text)
     elif args.command == "recent":
         print(store.recent_report(args.days))
     elif args.command == "keyword":
