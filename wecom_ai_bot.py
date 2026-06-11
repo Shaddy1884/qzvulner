@@ -343,15 +343,15 @@ class WeComAIBotRunner:
         self.client.on("authenticated", lambda: logger.info("企业微信智能机器人认证成功"))
         self.client.on("error", lambda error: logger.error(f"企业微信智能机器人错误：{error}"))
 
-        # 监听连接断开事件：服务端主动断开（新连接挤掉旧连接）时优雅退出；
-        # 网络瞬断时 SDK 会自动重连，bot 继续等待。
+        # 监听连接断开：服务端主动断开（如手动推送命令新连接挤掉旧连接）时，
+        # 等待手动推送完成后自动重连，避免常驻 bot 退出。
         def _on_disconnected(reason: str) -> None:
             logger.warning(f"WebSocket 连接断开：{reason}")
-            # _started 为 False 表示服务端主动断开（disconnected_event），不应重连
             started = getattr(self.client, "_started", True)
             if not started:
-                logger.error("服务端因新连接建立而断开此连接，bot 即将退出")
-                self._shutdown_event.set()
+                logger.warning("服务端主动断开连接（可能因手动推送或新连接建立），"
+                               "bot 将在 5 秒后尝试重连...")
+                asyncio.create_task(self._reconnect_after_delay(5))
 
         self.client.on("disconnected", _on_disconnected)
         self.client.on("reconnecting", lambda attempt: logger.info(f"正在重连...（第 {attempt} 次）"))
@@ -377,6 +377,19 @@ class WeComAIBotRunner:
         finally:
             # 确保连接正常关闭
             await self.shutdown()
+
+    async def _reconnect_after_delay(self, delay: float) -> None:
+        """延迟重连：等待手动推送等短时操作完成后再重新建立 WebSocket。"""
+        await asyncio.sleep(delay)
+        if self._shutdown_event.is_set():
+            return
+        logger.info("正在重新连接企业微信...")
+        try:
+            await self.client.connect()
+            logger.info("重连成功，bot 已恢复正常")
+        except Exception as e:
+            logger.error(f"重连失败：{e}，bot 即将退出")
+            self._shutdown_event.set()
 
     async def shutdown(self) -> None:
         """优雅关闭 WebSocket 连接。"""
