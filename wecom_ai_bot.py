@@ -481,6 +481,11 @@ async def async_main() -> None:
             result = store.today_report()
             request = {"action": "push_today", "date": ""}
 
+        # 防御：report.py 版本过旧时 today_report() 返回 str 而非 ReportResult
+        if isinstance(result, str):
+            print("错误：report.py 版本过旧，请更新：git pull origin main", file=sys.stderr)
+            sys.exit(1)
+
         if not result.ready:
             print(f"错误：{result.text}", file=sys.stderr)
             sys.exit(1)
