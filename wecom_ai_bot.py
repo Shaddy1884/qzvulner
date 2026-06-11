@@ -343,6 +343,19 @@ class WeComAIBotRunner:
         self.client.on("authenticated", lambda: logger.info("企业微信智能机器人认证成功"))
         self.client.on("error", lambda error: logger.error(f"企业微信智能机器人错误：{error}"))
 
+        # 监听连接断开事件：服务端主动断开（新连接挤掉旧连接）时优雅退出；
+        # 网络瞬断时 SDK 会自动重连，bot 继续等待。
+        def _on_disconnected(reason: str) -> None:
+            logger.warning(f"WebSocket 连接断开：{reason}")
+            # _started 为 False 表示服务端主动断开（disconnected_event），不应重连
+            started = getattr(self.client, "_started", True)
+            if not started:
+                logger.error("服务端因新连接建立而断开此连接，bot 即将退出")
+                self._shutdown_event.set()
+
+        self.client.on("disconnected", _on_disconnected)
+        self.client.on("reconnecting", lambda attempt: logger.info(f"正在重连...（第 {attempt} 次）"))
+
         schedule.every().day.at(self.daily_push_time).do(
             lambda: asyncio.create_task(self.push_daily())
         )
@@ -352,11 +365,10 @@ class WeComAIBotRunner:
                     f"联网搜索: {'已启用' if self.web_search else '未启用'}")
         await self.client.connect()
 
-        # 主循环：等待关闭信号
+        # 主循环：等待关闭信号（不依赖 is_connected，SDK 自行处理重连）
         try:
-            while getattr(self.client, "is_connected", True) and not self._shutdown_event.is_set():
+            while not self._shutdown_event.is_set():
                 schedule.run_pending()
-                # 使用短超时等待，以便及时响应关闭信号
                 try:
                     await asyncio.wait_for(self._shutdown_event.wait(), timeout=1.0)
                     break  # 收到关闭信号，退出循环
@@ -368,16 +380,18 @@ class WeComAIBotRunner:
 
     async def shutdown(self) -> None:
         """优雅关闭 WebSocket 连接。"""
-        if getattr(self.client, "is_connected", False):
-            logger.info("正在关闭企业微信智能机器人连接...")
-            try:
-                # disconnect 是同步方法，不需要 await
-                self.client.disconnect()
-                # 等待一小段时间确保连接完全关闭
+        try:
+            if getattr(self.client, "is_connected", False):
+                logger.info("正在关闭企业微信智能机器人连接...")
+                try:
+                    await self.client.disconnect()
+                except TypeError:
+                    # 兼容旧版 SDK（disconnect 为同步方法）
+                    self.client.disconnect()
                 await asyncio.sleep(0.5)
                 logger.info("连接已关闭")
-            except Exception as e:
-                logger.error(f"关闭连接时出错：{e}")
+        except Exception as e:
+            logger.error(f"关闭连接时出错：{e}")
 
 
 def load_runner(config_path: Path) -> WeComAIBotRunner:
