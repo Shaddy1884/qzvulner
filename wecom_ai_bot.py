@@ -323,6 +323,13 @@ class WeComAIBotRunner:
             }, ensure_ascii=False), encoding="utf-8")
             return
 
+        if not self.allowed_chats:
+            result_path.write_text(json.dumps({
+                "success": False,
+                "message": "allowed_chats 为空，请在 config.json → wecom_ai_bot.allowed_chats 中填入群聊 chat_id。",
+            }, ensure_ascii=False), encoding="utf-8")
+            return
+
         logger.info(f"[IPC] 开始推送{label}，目标群: {len(self.allowed_chats)} 个")
         for chat_id in self.allowed_chats:
             for chunk in split_message(result.text):
@@ -348,6 +355,9 @@ class WeComAIBotRunner:
             lambda: asyncio.create_task(self.push_daily())
         )
 
+        if not self.allowed_chats:
+            logger.warning("allowed_chats 为空，每日推送和手动推送将不会发送到任何群聊。"
+                           "请在 config.json → wecom_ai_bot.allowed_chats 中填入群聊 chat_id。")
         logger.info(f"正在连接企业微信，每日推送时间: {self.daily_push_time}")
         logger.info(f"LLM: {'已启用' if self.llm_router else '未启用'} | "
                     f"联网搜索: {'已启用' if self.web_search else '未启用'}")
