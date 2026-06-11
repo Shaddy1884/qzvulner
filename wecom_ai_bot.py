@@ -331,17 +331,25 @@ class WeComAIBotRunner:
             return
 
         logger.info(f"[IPC] 开始推送{label}，目标群: {len(self.allowed_chats)} 个")
+        failed = False
         for chat_id in self.allowed_chats:
             for chunk in split_message(result.text):
-                await self.client.send_message(chat_id, {
-                    "msgtype": "markdown",
-                    "markdown": {"content": chunk},
-                })
-            logger.info(f"[IPC] 已推送{label}到群 {chat_id}")
+                try:
+                    await self.client.send_message(chat_id, {
+                        "msgtype": "markdown",
+                        "markdown": {"content": chunk},
+                    })
+                except Exception as e:
+                    logger.error(f"[IPC] 推送{label}到群 {chat_id} 失败：{e}")
+                    failed = True
+                    break
+            if not failed:
+                logger.info(f"[IPC] 已推送{label}到群 {chat_id}")
 
         result_path.write_text(json.dumps({
-            "success": True,
-            "message": f"{label}已推送到 {len(self.allowed_chats)} 个群聊",
+            "success": not failed,
+            "message": f"{label}已推送到 {len(self.allowed_chats)} 个群聊" if not failed
+                       else f"{label}推送失败，请查看 bot 日志。",
         }, ensure_ascii=False), encoding="utf-8")
 
     async def start(self) -> None:
@@ -364,10 +372,19 @@ class WeComAIBotRunner:
         await self.client.connect()
 
         # 主循环：处理定时任务 + IPC 推送请求 + 等待关闭信号
+        logger.info("Bot 已进入主循环，等待消息和定时任务...")
         try:
             while not self._shutdown_event.is_set():
-                schedule.run_pending()
-                await self._check_push_requests()
+                try:
+                    schedule.run_pending()
+                except Exception:
+                    logger.error("schedule.run_pending 异常", exc_info=True)
+
+                try:
+                    await self._check_push_requests()
+                except Exception:
+                    logger.error("IPC 推送请求处理异常", exc_info=True)
+
                 try:
                     await asyncio.wait_for(self._shutdown_event.wait(), timeout=1.0)
                     break  # 收到关闭信号，退出循环
@@ -537,9 +554,9 @@ async def async_main() -> None:
 
     runner = load_runner(Path(args.config).expanduser().absolute())
 
-    # 注册信号处理器
+    # 注册信号处理器（含 SIGHUP 防止终端断开导致退出）
     loop = asyncio.get_running_loop()
-    for sig in (signal.SIGINT, signal.SIGTERM):
+    for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
         loop.add_signal_handler(sig, runner._shutdown_event.set)
 
     try:
