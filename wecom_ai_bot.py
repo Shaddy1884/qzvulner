@@ -561,7 +561,13 @@ async def async_main() -> None:
     logger.info("企业微信 AI 机器人启动")
     logger.info("=" * 50)
 
-    runner = load_runner(Path(args.config).expanduser().absolute())
+    try:
+        config_path = Path(args.config).expanduser().absolute()
+        logger.info(f"加载配置: {config_path}")
+        runner = load_runner(config_path)
+    except Exception as e:
+        logger.error(f"加载配置失败: {e}", exc_info=True)
+        sys.exit(1)
 
     # 注册信号处理器（不处理 SIGHUP，由 nohup 自动忽略）
     loop = asyncio.get_running_loop()
@@ -578,7 +584,14 @@ async def async_main() -> None:
 
 
 def main() -> None:
-    asyncio.run(async_main())
+    try:
+        asyncio.run(async_main())
+    except KeyboardInterrupt:
+        pass
+    except Exception as e:
+        # 兜底：确保未捕获异常至少被记录
+        logging.getLogger("wecom_ai_bot").error(f"未捕获的异常: {e}", exc_info=True)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
