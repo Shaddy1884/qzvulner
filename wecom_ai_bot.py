@@ -563,9 +563,9 @@ async def async_main() -> None:
 
     runner = load_runner(Path(args.config).expanduser().absolute())
 
-    # 注册信号处理器（含 SIGHUP 防止终端断开导致退出）
+    # 注册信号处理器（不处理 SIGHUP，由 nohup 自动忽略）
     loop = asyncio.get_running_loop()
-    for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+    for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, runner._shutdown_event.set)
 
     try:
